@@ -38,7 +38,7 @@ float timeSinceLast = 0;
 long currentTime;
 int firstReading = 1;
 int counter = 0;
-int validNo[30] = {84, 185, 300, 416, 82, 183, 299, 413, 518, 619, 737, 838, 906, 1003, 1119, 1216, 83, 199, 296, 412, 529, 644, 68, 169, 267, 384, 487, 188, 298, 414}; //lookup table for checking for errors in commands
+int validNo[34] = {84, 185, 300, 416, 82, 183, 299, 413, 518, 619, 737, 838, 906, 1003, 1119, 1216, 83, 199, 296, 412, 529, 644, 68, 169, 267, 384, 487, 188, 298, 414, 100, 200, 297, 510}; //lookup table for checking for errors in commands
 File collection;
 
 String collectionName = "test.txt";
@@ -64,10 +64,10 @@ void setup() {
 
   //initialising SD card with clock on CS on pin 10
   if (SD.begin(10)) {
-    if (SD.exists(collectionName)) {
-      //removing the previous test.txt
-      SD.remove(collectionName);
-    }
+//    if (SD.exists(collectionName)) {
+//      //removing the previous test.txt
+//      SD.remove(collectionName);
+//    }
 
     // makes a new test file and then closes the handler
     collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
@@ -76,17 +76,17 @@ void setup() {
     }
   }
 
-  //      // This code can be used to create multiple files meaning we dont delete files when the device tunrs on
-  //      int i = 0;
-  //      while(SD.exists("test"+i+".txt"){
-  //        i++;
-  //        }
-  //      collectionName = "test"+i+".txt";
-  //    // makes a new test file that can be writen to and then closes the handler
-  //      collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
-  //      if (collection) {
-  //        collection.close();
-  //      }
+//        // This code can be used to create multiple files meaning we dont delete files when the device tunrs on
+//        int i = 0;
+//        while(SD.exists("test"+i+".txt"){
+//          i++;
+//          }
+//        collectionName = "test"i".txt";
+//      // makes a new test file that can be writen to and then closes the handler
+//        collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
+//        if (collection) {
+//          collection.close();
+//        }
 
 
 
@@ -138,13 +138,13 @@ void loop() {
   // Used to figure out if another sample needs to be taken
   long currentStateTime = millis();
   //float timeSince = ((currentStateTime - lastTime) / 1000) / 60;
-  float timeSince = ((currentStateTime - lastTime) / 1000); //in seconds
+  timeSinceLast = ((currentStateTime - lastTime) / 1000); //in seconds
 
 
   /////////////////////////////// Reading State ////////////////////////////////
-  if (timeSince > sample_timer) {
+  if (timeSinceLast > sample_timer) {
     //start enabling devices
-    ADC_off(0); // enable ADC now so it can stabalise before using it
+    //ADC_off(0); // enable ADC now so it can stabalise before using it
 
     //now take samples
     temperature = getTemperatureReal();
@@ -152,7 +152,7 @@ void loop() {
     pH = getPHReal(temperature);
     EC = getConductivityReal();
 
-    getSample(temperature, turbidity, pH, EC); // Take a sample
+    getSample(temperature, turbidity, pH, EC, timeSinceLast); // Take a sample
 
     lastTime = currentStateTime;
   }
@@ -185,9 +185,9 @@ void MainComs(double temperature, double turbidity, String pH, String EC) {
       collection = SD.open(collectionName);
 
       //calculating time
-      currentTime = millis();
-      timeSinceLast = ((float)currentTime - (float)prevSampleTime) / (float)(60000);
-      prevSampleTime = currentTime; //set the new previous sample time
+      //currentTime = millis();
+      //timeSince = ((float)currentTime - (float)prevSampleTime) / (float)(1000);
+      //prevSampleTime = currentTime; //set the new previous sample time
 
       Serial.println(F("[databegin] {"));
       Serial.println(F("\"status\": \"complete\",\n"));
@@ -200,19 +200,22 @@ void MainComs(double temperature, double turbidity, String pH, String EC) {
       }
       collection.close();
 
-      Serial.print("\n],\n\"TimeSinceLast\":" + String(timeSinceLast) + "\n}[dataend]\n");
+      //Serial.print("\n],\n\"TimeSinceLast\":" + String(timeSince) + "\n}[dataend]\n");
       //resetting the counter
       counter = 0;
     }
 
     //Sending a test sample cmd = Test
     else if (counter == 416) {
+      long currentStateTime = millis();
+      float timeSince = ((currentStateTime - lastTime) / 1000); //in seconds
+      
       temperature = getTemperatureReal();
       turbidity = getTurbidityReal();
       pH = getPHReal(temperature);
       EC = getConductivityReal();
 
-      getSample(temperature, turbidity, pH, EC);
+      getSample(temperature, turbidity, pH, EC, timeSince);
 
       Serial.println("[databegin]");
 
@@ -244,9 +247,20 @@ void MainComs(double temperature, double turbidity, String pH, String EC) {
       counter = 0;
       pH_EC_debug_mode();
     }
-
+    // method to change sampling time on the fly
     else if (counter == 414) {
       change_sample_timer();
+    }
+    
+    // method to delete file on device if needed
+    else if (counter == 510) {
+      if (SD.exists(collectionName)) {
+        //removing the previous test.txt
+        SD.remove(collectionName);
+      }
+      collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
+      Serial.print(F("Data Deleted"));
+      
     }
     
   }
@@ -332,11 +346,12 @@ double getTurbidityReal() {
 
     //total = total + fitTurbidity;
     total = total + rawTurbidity;
+    
   }
   digitalWrite(turbidityControlPin, LOW); // turning of sensor
 
   //turn ADC off since it is no longer needed
-  ADC_off(1);
+  //ADC_off(1);
   return (total / 10.00); // returning average of 10 measurements and curve fitting.
 }
 
@@ -352,14 +367,14 @@ String getConductivityReal() {
   EC_serial.listen();
 
   EC_serial.print("Slepy\r"); // wakes up the device and sends incorrect command (2 char wake it up, more than 2 registers as a command and gets device to return an error, bringing corupt symbols with it
-  delay(3000);
+  delay(2000);
   while (EC_serial.available() > 0) {       // catch any corrupt symbols from the chip when waking up from sleep
     EC_serial.read();
 
   }
 
   EC_serial.print("R\r"); // tell chip to take a sample
-  delay(5000);
+  delay(3000);
 
   if (EC_serial.available() > 0) {                                       //if we see that the EC Circuit has sent a character.
     received_from_EC_sensor = EC_serial.readBytesUntil(13, EC_data, 48); //we read the data sent from EC Circuit until we see a <CR>. We also count how many character have been received.
@@ -408,7 +423,7 @@ void readSerial() {
 
 //checking if the current counter is in the look up table of possible counter states
 int contains(int no) {
-  for (int i = 0; i < 30; i++) {
+  for (int i = 0; i < 34; i++) {
     if (validNo[i] == no) {
       return 1;
     }
@@ -416,7 +431,7 @@ int contains(int no) {
   return 0;
 }
 
-void getSample(double temperature, double turbidity, String pH, String EC) {
+void getSample(double temperature, double turbidity, String pH, String EC, float timeSince) {
 
   temp = F("");
   overhead = F("");
@@ -458,19 +473,19 @@ void getSample(double temperature, double turbidity, String pH, String EC) {
   //timesincelast
   temp = F("\", \"TSL\":\"");       // TSL -> time since last
 
-  if (timeSinceLast == 0) { //first reading
-    currentTime = millis();
-    timeSinceLast = ((float)currentTime - (float)prevSampleTime) / (float)(60000);
+  if (timeSince == 0) { //first reading
+    //currentTime = millis();
+    //timeSinceLast = ((float)currentTime - (float)prevSampleTime) / (float)(60000);
     temp += "0";
-    prevSampleTime = currentTime; //set the new previous sample time
+    //prevSampleTime = currentTime; //set the new previous sample time
     collection.print(temp);
     t += temp;
   }
   else {
-    currentTime = millis();
-    timeSinceLast = ((float)currentTime - (float)prevSampleTime) / (float)(60000);
-    temp += (String)timeSinceLast;
-    prevSampleTime = currentTime; //set the new previous sample time
+    //currentTime = millis();
+    //timeSinceLast = ((float)currentTime - (float)prevSampleTime) / (float)(60000);
+    temp += (String)timeSince;
+    //prevSampleTime = currentTime; //set the new previous sample time
 
     collection.print(temp);
     t += temp;
@@ -519,63 +534,63 @@ void getSample(double temperature, double turbidity, String pH, String EC) {
 //  CLKPR = CLKPR | B00001000;   // must be an integer value e.g. 1,2,4,8,16,32,64,128,256 //
 //}
 /////////////////////////////////////////// Turning off some stuff /////////////////////////////////////////////
-void ADC_off(int A) {
-  if (A == 1) {
-    // Disable the ADC by setting the ADEN bit (bit 7)  of the
-    // ADCSRA register to zero.
-    ADCSRA = ADCSRA | B10000000;
-
-    // Disable the analog comparator by setting the ACD bit
-    // (bit 7) of the ACSR register to one.
-    ACSR = ACSR | B10000000;
-
-    PRR = PRR | B00000001; // puts the ADC into power reduction mode after dissabling it
-  }
-  else {
-
-    PRR = PRR & B11111110; // takes the ADC out of power reduction mode before re-enabling it
-    // enable the ADC by setting the ADEN bit (bit 7)  of the
-    // ADCSRA register to one.
-    ADCSRA = ADCSRA & B01111111;
-
-    // ensable the analog comparator by setting the ACD bit
-    // (bit 7) of the ACSR register to zero.
-    ACSR = ACSR & B01111111;
-
-
-  }
-}
+//void ADC_off(int A) {
+//  if (A == 1) {
+//    // Disable the ADC by setting the ADEN bit (bit 7)  of the
+//    // ADCSRA register to zero.
+//    ADCSRA = ADCSRA | B10000000;
+//
+//    // Disable the analog comparator by setting the ACD bit
+//    // (bit 7) of the ACSR register to one.
+//    ACSR = ACSR | B10000000;
+//
+//    PRR = PRR | B00000001; // puts the ADC into power reduction mode after dissabling it
+//  }
+//  else {
+//
+//    PRR = PRR & B11111110; // takes the ADC out of power reduction mode before re-enabling it
+//    // enable the ADC by setting the ADEN bit (bit 7)  of the
+//    // ADCSRA register to one.
+//    ADCSRA = ADCSRA & B01111111;
+//
+//    // ensable the analog comparator by setting the ACD bit
+//    // (bit 7) of the ACSR register to zero.
+//    ACSR = ACSR & B01111111;
+//
+//
+//  }
+//}
 
 /////////////////////////////////////////// IDLE power down method /////////////////////////////////////////////
-void idle(int A) { // A = 1 turn on, A =0, turn off
-  if (A == 1) {
-    // power reduction register (PRR)
-    // Bit 7 - PRTWI: Power Reduction TWI (Two wire interface)
-    // Bit 6 - PRTIM2: Power Reduction Timer/Counter2
-    // Bit 5 - PRTIM0: Power Reduction Timer/Counter0
-    // Bit 4 - Res: Reserved bit
-    // Bit 3 - PRTIM1: Power Reduction Timer/Counter1
-    // Bit 2 - PRSPI: Power Reduction Serial Peripheral Interface
-    // Bit 1 - PRUSART0: Power Reduction USART0
-    // Bit 0 - PRADC: Power Reduction ADC
-    // '1' will turn it off while '0' will turn it back on
-    // 76543210
-    PRR = PRR | 0b00100000; // disables time timmer before entering SLEEP_MODE_IDLE otherwise it will wake up every mill second.
-    set_sleep_mode (SLEEP_MODE_IDLE); // puts arduino in idle
-    sleep_enable();
-    // Put the device to sleep:
-    sleep_mode();
-    ADCSRA = 0;// disable ADC
-    PRR = PRR | 0b11101101; // turns of all but USART0
-  }
-  else {
-    sleep_disable();
-    ADCSRA = 1; // turn on ADC
-    PRR = 0b11110111; // turns on all things we tunred off
-
-  }
-
-}
+//void idle(int A) { // A = 1 turn on, A =0, turn off
+//  if (A == 1) {
+//    // power reduction register (PRR)
+//    // Bit 7 - PRTWI: Power Reduction TWI (Two wire interface)
+//    // Bit 6 - PRTIM2: Power Reduction Timer/Counter2
+//    // Bit 5 - PRTIM0: Power Reduction Timer/Counter0
+//    // Bit 4 - Res: Reserved bit
+//    // Bit 3 - PRTIM1: Power Reduction Timer/Counter1
+//    // Bit 2 - PRSPI: Power Reduction Serial Peripheral Interface
+//    // Bit 1 - PRUSART0: Power Reduction USART0
+//    // Bit 0 - PRADC: Power Reduction ADC
+//    // '1' will turn it off while '0' will turn it back on
+//    // 76543210
+//    PRR = PRR | 0b00100000; // disables time timmer before entering SLEEP_MODE_IDLE otherwise it will wake up every mill second.
+//    set_sleep_mode (SLEEP_MODE_IDLE); // puts arduino in idle
+//    sleep_enable();
+//    // Put the device to sleep:
+//    sleep_mode();
+//    ADCSRA = 0;// disable ADC
+//    PRR = PRR | 0b11101101; // turns of all but USART0
+//  }
+//  else {
+//    sleep_disable();
+//    ADCSRA = 1; // turn on ADC
+//    PRR = 0b11110111; // turns on all things we tunred off
+//
+//  }
+//
+//}
 
 
 
@@ -664,7 +679,7 @@ void change_sample_timer() {
     }
   }
 
-  //while its bad, the input will not be checked for if it is a string
+  //while its bad, the input will not be checked for if it is a string/integer
   SD.remove(sample_timer_file);
   collection = SD.open(sample_timer_file, FILE_WRITE);
   //"config.txt";
@@ -682,8 +697,9 @@ void read_sample_timer() {
   if (SD.exists(sample_timer_file)) {
     collection = SD.open(sample_timer_file);
     //"config.txt";
-    inputnumber = collection.read();  
+    inputnumber = collection.readStringUntil(13);  
     collection.close();
+    inputnumber.trim();
     sample_timer = inputnumber.toInt();
   }
   else {
