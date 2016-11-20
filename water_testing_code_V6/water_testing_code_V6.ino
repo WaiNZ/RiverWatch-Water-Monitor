@@ -1,3 +1,36 @@
+//*H****************************************************************************
+// FILENAME:  water_testing_code_V6.ino
+// 
+// DESCRIPTION: 
+//  This code is used by the Riverwatch Water quality measuring device from WAINZ.
+//
+// 
+//  Copyright by Many authors, detailed in the Read Me and licence files.
+// 
+//    This file is part of WAINZ water quality measuring device code.
+//
+//    WAINZ water quality measuring device code is free software: you can 
+//    redistribute it and/or modify it under the terms of the GNU General 
+//    Public License as published by the Free Software Foundation, either
+//    version 3 of the License, or (at your option) any later version.
+//
+//    This software is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with the source code. If not, see <http://www.gnu.org/licenses/>.
+// 
+// CHANGES:
+// DATE     WHO DETAILS
+// 03/11/2016  Aidan: added GNU GPL licence header.
+//
+//*H*
+
+
+
+
 //Global Statements
 #include <SoftwareSerial.h>      //we have to include the SoftwareSerial library, or else we can't use it.    
 #include <avr/pgmspace.h>
@@ -21,11 +54,11 @@ SoftwareSerial pH_serial(pH_rx, pH_tx);
 
 //pins
 
-int turbidityPin = A5; // this is A2 for for the damaged bluno nano, A5 for undamaged
+int turbidityPin = A5; // this is A2 for old bluno nano model, A5 for newer models
 int turbidityControlPin = 3; // D3 - control pin stays the same
 
-int DS18S20_Pin = A4; //DS18S20 Signal pin on analog pin 0 for old bluno, A7 for undamaged
-OneWire ds(DS18S20_Pin);  // on digital pin 1
+int DS18S20_Pin = A4; //DS18S20 Signal pin on analog pin 0 for old bluno, A7 for newer model
+OneWire ds(DS18S20_Pin);  
 
 long lastTime = 0;
 
@@ -33,13 +66,15 @@ long lastTime = 0;
 
 int deviceID = 1;
 int sampleID = 0;
-long prevSampleTime;
+//long StartSampleTime;
 float timeSinceLast = 0;
-long currentTime;
+long currentTime = 0;
 int firstReading = 1;
+//int prevData = 0;
 int counter = 0;
 int validNo[34] = {84, 185, 300, 416, 82, 183, 299, 413, 518, 619, 737, 838, 906, 1003, 1119, 1216, 83, 199, 296, 412, 529, 644, 68, 169, 267, 384, 487, 188, 298, 414, 100, 200, 297, 510}; //lookup table for checking for errors in commands
 File collection;
+
 
 String collectionName = "test.txt";
 String sample_timer_file = "config.txt";
@@ -64,10 +99,11 @@ void setup() {
 
   //initialising SD card with clock on CS on pin 10
   if (SD.begin(10)) {
-//    if (SD.exists(collectionName)) {
-//      //removing the previous test.txt
-//      SD.remove(collectionName);
-//    }
+    if (SD.exists(collectionName)) {
+
+      //removing the previous test.txt
+      SD.remove(collectionName);
+    }
 
     // makes a new test file and then closes the handler
     collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
@@ -76,17 +112,17 @@ void setup() {
     }
   }
 
-//        // This code can be used to create multiple files meaning we dont delete files when the device tunrs on
-//        int i = 0;
-//        while(SD.exists("test"+i+".txt"){
-//          i++;
-//          }
-//        collectionName = "test"i".txt";
-//      // makes a new test file that can be writen to and then closes the handler
-//        collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
-//        if (collection) {
-//          collection.close();
-//        }
+  //        // This code template can be used to create multiple files, meaning we dont delete files when the device tunrs on (wont work straight away)
+  //        int i = 0;
+  //        while(SD.exists("test"+i+".txt"){
+  //          i++;
+  //          }
+  //        collectionName = "test"i".txt";
+  //      // makes a new test file that can be writen to and then closes the handler
+  //        collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
+  //        if (collection) {
+  //          collection.close();
+  //        }
 
 
 
@@ -114,15 +150,16 @@ void setup() {
 
   getTemp(); //run this to remove errors from first time measurements with the temp sensors
 
-  read_sample_timer();  //run this to load timer
+  read_sample_timer();  //run this to load sample timer intervals
+
 
   // now for power saving stuff
 
   PRR = PRR | B10000000;  //disable two wire interface
   //power_adc_disable();
 
-  // changes clock speed to slow
-  //clk_speed(256);
+  //timeSinceLast = 0;
+  //StartSampleTime = millis() / 1000;
 }
 
 /////////////////////////// Loop /////////////////////////
@@ -135,10 +172,20 @@ void loop() {
   String pH = "";
   String EC = "";
 
+//  // just to catch no comma in data if previous data has not been deleted
+//  if (prevData == 1) {
+//    collection = SD.open(collectionName, FILE_WRITE); //open existing test.txt file
+//    collection.print(",\n");
+//    prevData = 0;
+//    collection.close();
+//  }
+
+
   // Used to figure out if another sample needs to be taken
-  long currentStateTime = millis();
+  long currentTime = millis();
   //float timeSince = ((currentStateTime - lastTime) / 1000) / 60;
-  timeSinceLast = ((currentStateTime - lastTime) / 1000); //in seconds
+
+  timeSinceLast = ((currentTime - lastTime) / 1000); //in seconds
 
 
   /////////////////////////////// Reading State ////////////////////////////////
@@ -151,10 +198,10 @@ void loop() {
     turbidity = getTurbidityReal();
     pH = getPHReal(temperature);
     EC = getConductivityReal();
+    
+    getSample(temperature, turbidity, pH, EC, timeSinceLast);// Take a sample
 
-    getSample(temperature, turbidity, pH, EC, timeSinceLast); // Take a sample
-
-    lastTime = currentStateTime;
+    lastTime = currentTime;
   }
 
   /////////////////////////////// Bluetooth Transmition /////////////////////////
@@ -184,10 +231,7 @@ void MainComs(double temperature, double turbidity, String pH, String EC) {
       //opening test.txt to read data
       collection = SD.open(collectionName);
 
-      //calculating time
-      //currentTime = millis();
-      //timeSince = ((float)currentTime - (float)prevSampleTime) / (float)(1000);
-      //prevSampleTime = currentTime; //set the new previous sample time
+
 
       Serial.println(F("[databegin] {"));
       Serial.println(F("\"status\": \"complete\",\n"));
@@ -201,6 +245,7 @@ void MainComs(double temperature, double turbidity, String pH, String EC) {
       collection.close();
 
       //Serial.print("\n],\n\"TimeSinceLast\":" + String(timeSince) + "\n}[dataend]\n");
+      Serial.print("\n]}\n[dataend]\n");
       //resetting the counter
       counter = 0;
     }
@@ -208,14 +253,15 @@ void MainComs(double temperature, double turbidity, String pH, String EC) {
     //Sending a test sample cmd = Test
     else if (counter == 416) {
       long currentStateTime = millis();
-      float timeSince = ((currentStateTime - lastTime) / 1000); //in seconds
+      timeSinceLast = ((currentStateTime - lastTime) / 1000); //in seconds
+      lastTime = currentStateTime;
       
       temperature = getTemperatureReal();
       turbidity = getTurbidityReal();
       pH = getPHReal(temperature);
       EC = getConductivityReal();
 
-      getSample(temperature, turbidity, pH, EC, timeSince);
+      getSample(temperature, turbidity, pH, EC, timeSinceLast);
 
       Serial.println("[databegin]");
 
@@ -241,28 +287,32 @@ void MainComs(double temperature, double turbidity, String pH, String EC) {
       counter = 0;
     }
 
-    //if Debug command is recieved, enter sensor debug mode for direct access to sensor commands from bluetooth
+    //if Debug command is recieved, enter sensor debug mode for direct access to sensor commands from bluetooth, cmd = debug
     else if (counter == 487) {
       Serial.println(F("Debug_on"));
       counter = 0;
       pH_EC_debug_mode();
     }
-    // method to change sampling time on the fly
+    
+    // method to change sampling time on the fly if it recieves a 
     else if (counter == 414) {
       change_sample_timer();
     }
-    
-    // method to delete file on device if needed
+
+    // method to delete file on device if needed, cmd = ddata
     else if (counter == 510) {
+      
       if (SD.exists(collectionName)) {
         //removing the previous test.txt
         SD.remove(collectionName);
       }
       collection = SD.open(collectionName, FILE_WRITE); //making a new test.txt file
+      collection.close();
+      sampleID = 0;
       Serial.print(F("Data Deleted"));
-      
+
     }
-    
+
   }
 }
 
@@ -342,15 +392,15 @@ double getTurbidityReal() {
     delay(2);
 
     // adding a fitting curve
-    fitTurbidity = (1 / 500000) * (rawTurbidity * rawTurbidity) - 0.0022 * (rawTurbidity) + 3.7996; //curve fitting
+    //fitTurbidity = (1 / 500000) * (rawTurbidity * rawTurbidity) - 0.0022 * (rawTurbidity) + 3.7996; //this curve fitting does not work
 
     //total = total + fitTurbidity;
     total = total + rawTurbidity;
-    
+
   }
   digitalWrite(turbidityControlPin, LOW); // turning of sensor
 
-  //turn ADC off since it is no longer needed
+  ////turn ADC off since it is no longer needed
   //ADC_off(1);
   return (total / 10.00); // returning average of 10 measurements and curve fitting.
 }
@@ -364,9 +414,9 @@ String getConductivityReal() {
   byte string_received = 0;            //used to identify when we have received a string from the EC circuit.
 
   // waking up the chip
-  EC_serial.listen();
+  EC_serial.listen(); // this swaps the software serial to be active to the EC chip
 
-  EC_serial.print("Slepy\r"); // wakes up the device and sends incorrect command (2 char wake it up, more than 2 registers as a command and gets device to return an error, bringing corupt symbols with it
+  EC_serial.print("Slepy\r"); // wakes up the device and sends incorrect command (2 char wake it up, more than 2 char registers as a command and gets device to return an error, flushing corupt symbols with it
   delay(2000);
   while (EC_serial.available() > 0) {       // catch any corrupt symbols from the chip when waking up from sleep
     EC_serial.read();
@@ -397,8 +447,9 @@ String getConductivityReal() {
 String getPHReal(double temperature) {
   char pH_data[48];                  //we make a 48 byte character array to hold incoming data from the pH.
   byte received_from_pH_sensor = 0;     //we need to know how many characters have been received.
-
-  pH_serial.listen();
+  String data ="";
+  
+  pH_serial.listen(); // this swaps the software serial to be active to the pH chip
   pH_serial.print("R\r"); // telling the device to take a reading
   delay(1000);
 
@@ -408,20 +459,26 @@ String getPHReal(double temperature) {
   }
 
   pH_serial.print("E\r");
-  return (String)pH_data;
+  
+  data = (String)pH_data;
+  if( data == "check probe"){ // something went wrong with the device if this happens
+    data = "0";
+  }
+    
+  return data;
 }
 
 
 /////////////////////////////// Helper Methods ////////////////////////////////
 
-//Reading the serial to increment the counter
+//Reading the serial to increment the counter, adding up the decimal values for the ascii characters.
 void readSerial() {
   while (Serial.available() > 0) {
     counter += (int)Serial.read();
   }
 }
 
-//checking if the current counter is in the look up table of possible counter states
+//checking if the current counter is in the look up table of possible counter states for valid partial and full commands
 int contains(int no) {
   for (int i = 0; i < 34; i++) {
     if (validNo[i] == no) {
@@ -447,10 +504,12 @@ void getSample(double temperature, double turbidity, String pH, String EC, float
   //formatting
   if (firstReading == 1) {
     firstReading = 0;
+
   }
   else {
     collection.print(",\n");
   }
+
 
   //status
   temp += F("{\"status\":\"complete\"");
@@ -470,22 +529,16 @@ void getSample(double temperature, double turbidity, String pH, String EC, float
   collection.print(temp);
   overhead += temp;
 
-  //timesincelast
+//timesincelast
   temp = F("\", \"TSL\":\"");       // TSL -> time since last
 
   if (timeSince == 0) { //first reading
-    //currentTime = millis();
-    //timeSinceLast = ((float)currentTime - (float)prevSampleTime) / (float)(60000);
     temp += "0";
-    //prevSampleTime = currentTime; //set the new previous sample time
     collection.print(temp);
     t += temp;
   }
   else {
-    //currentTime = millis();
-    //timeSinceLast = ((float)currentTime - (float)prevSampleTime) / (float)(60000);
     temp += (String)timeSince;
-    //prevSampleTime = currentTime; //set the new previous sample time
 
     collection.print(temp);
     t += temp;
@@ -521,10 +574,16 @@ void getSample(double temperature, double turbidity, String pH, String EC, float
   temp += "\"}";
   collection.print(temp);
   E_C += temp;
+
+
+
+
   collection.close();
 }
 
-//////////////////////////////////////////// change clock speed /////////////////////////////////////////////////
+//------------- attempted power saving code - maximum power savings of 1mA observed with all of the following code - deemed Unnecessary
+
+//////////////////////////////////////////// change clock speed - this messes with serial communication, timers, millis() methods etc. needs special care to work properly /////////////////////////////////////////////////
 //void clk_speed(int prescaler) {
 //  // CLKPR is 8 bit long
 //
@@ -533,7 +592,9 @@ void getSample(double temperature, double turbidity, String pH, String EC, float
 //
 //  CLKPR = CLKPR | B00001000;   // must be an integer value e.g. 1,2,4,8,16,32,64,128,256 //
 //}
-/////////////////////////////////////////// Turning off some stuff /////////////////////////////////////////////
+
+
+/////////////////////////////////////////// Turning off ADC - interfered with the reliability of the turbidity readings /////////////////////////////////////////////
 //void ADC_off(int A) {
 //  if (A == 1) {
 //    // Disable the ADC by setting the ADEN bit (bit 7)  of the
@@ -561,7 +622,7 @@ void getSample(double temperature, double turbidity, String pH, String EC, float
 //  }
 //}
 
-/////////////////////////////////////////// IDLE power down method /////////////////////////////////////////////
+/////////////////////////////////////////// IDLE power down method - difficult to return device back out of sleep on serial events /////////////////////////////////////////////
 //void idle(int A) { // A = 1 turn on, A =0, turn off
 //  if (A == 1) {
 //    // power reduction register (PRR)
@@ -592,7 +653,7 @@ void getSample(double temperature, double turbidity, String pH, String EC, float
 //
 //}
 
-
+//--------------------------------------------------------------------------------------------------------------
 
 
 /////////////////////////////////////////// pH and EC debug modes ///////////////////////////////////////////////
@@ -669,7 +730,7 @@ void change_sample_timer() {
   String inputstring;
   boolean input_string_complete = false;
 
-  Serial.println(F("Sready"));
+  Serial.println(F("Sready")); //let app know its ready to recieve the sample interval
 
   while (input_string_complete == false) {
     if (Serial.available() > 0) {                     //if we have recieved a character from the bluetooth
@@ -679,36 +740,35 @@ void change_sample_timer() {
     }
   }
 
-  //while its bad, the input will not be checked for if it is a string/integer
-  SD.remove(sample_timer_file);
-  collection = SD.open(sample_timer_file, FILE_WRITE);
-  //"config.txt";
-  collection.println(inputstring);
+  //while its bad, the input will not be checked for if it is a string or integer :(
+  SD.remove(sample_timer_file); //remove old config file
+  collection = SD.open(sample_timer_file, FILE_WRITE); // create new file named "config.txt"
+  collection.println(inputstring); // write new time to the file
   collection.close();
-  sample_timer = inputstring.toInt();
-  Serial.println(F("Sdone"));
-  
+  sample_timer = inputstring.toInt(); // update timer field 
+  Serial.println(F("Sdone")); // tell app its done udating
+
 }
 
 
+// used on device startup to load sample interval from file
 void read_sample_timer() {
   String inputnumber;
 
   if (SD.exists(sample_timer_file)) {
-    collection = SD.open(sample_timer_file);
-    //"config.txt";
-    inputnumber = collection.readStringUntil(13);  
+    collection = SD.open(sample_timer_file); // file is named "config.txt"
+    inputnumber = collection.readStringUntil(13); // read untill endline character
     collection.close();
-    inputnumber.trim();
+    inputnumber.trim(); // remove any spaces or endlines that can cause the string toInt() to return the wrong value.
     sample_timer = inputnumber.toInt();
   }
   else {
 
-    collection = SD.open(sample_timer_file, FILE_WRITE);
+    collection = SD.open(sample_timer_file, FILE_WRITE); // create a config file if it doesnt exist and use a default sample interval of 5 minutes
     collection.println("300"); //default is 300 seconds
-    collection.close();  
+    collection.close();
   }
-  
+
 }
 
 
