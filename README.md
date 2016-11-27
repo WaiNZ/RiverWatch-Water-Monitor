@@ -11,7 +11,7 @@ A Description of the files:
 * `Enclosure\Back.SLDPRT`: Is a Solidworks file containing the model of part of the enclosure used for laser cutting.
 * `Enclosure\Assembly.SLDASM`: Is a Solidworks assembly drawing containing all the part files, which provides an overview on the assembly of the enclosure
 
-The 'Data Sheets' folder contains the datasheets for some of the components used in the Water Quality Measuring Device
+The `Data Sheets` folder contains the datasheets for some of the components used in the Water Quality Measuring Device
 ____
 The following people contributed to the files:
 
